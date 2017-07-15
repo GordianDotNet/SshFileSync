@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Renci.SshNet;
@@ -16,6 +17,76 @@ namespace SshFileSync
     /// </summary>
     public class SshDeltaCopy : IDisposable
     {
+        public class Options
+        {
+            public const int HOST_INDEX = 0;
+            public const int PORT_INDEX = 1;
+            public const int USERNAME_INDEX = 2;
+            public const int PASSWORD_INDEX = 3;
+            public const int SOURCE_DIRECTORY_INDEX = 4;
+            public const int DESTINATION_DIRECTORY_INDEX = 5;
+
+            public const int DEFAULT_PORT = 22;
+
+            public string Host = string.Empty;
+            public int Port = DEFAULT_PORT;
+            public string Username = string.Empty;
+            public string Password = string.Empty;
+            public string DestinationDirectory = string.Empty;
+            public string SourceDirectory = string.Empty;
+            public bool RemoveOldFiles = true;
+            public bool PrintTimings = true;
+            public bool RemoveTempDeleteListFile = true;
+
+            public string ConnectionGroupKey
+            {
+                get
+                {
+                    return $"{Host}#{Port}#{Username}";
+                }
+            }
+            
+            public Options()
+            { }
+
+            public static Options CreateFromArgs(string[] args)
+            {
+                if (args == null)
+                {
+                    throw new NullReferenceException($"{nameof(CreateFromArgs)}.{nameof(CreateFromArgs)}: {nameof(args)} == null");
+                }
+
+                var maxArgsIndex = args.Length - 1;
+
+                if (maxArgsIndex < PASSWORD_INDEX)
+                {
+                    throw new ArgumentOutOfRangeException($"{nameof(CreateFromArgs)}.{nameof(CreateFromArgs)}: {nameof(args)}.Length < 4");
+                }
+
+                int port;
+                if (!int.TryParse(args[PORT_INDEX], out port))
+                {
+                    port = DEFAULT_PORT;
+                }
+
+                var instance = new Options()
+                {
+                    Host = args[HOST_INDEX],
+                    Port = port,
+                    Username = args[USERNAME_INDEX],
+                    Password = args[PASSWORD_INDEX]
+                };
+
+                if (maxArgsIndex >= DESTINATION_DIRECTORY_INDEX)
+                {
+                    instance.SourceDirectory = args[SOURCE_DIRECTORY_INDEX];
+                    instance.DestinationDirectory = args[DESTINATION_DIRECTORY_INDEX];
+                }
+
+                return instance;
+            }
+        }
+
         private struct UpdateCacheEntry
         {
             public string FilePath;
@@ -41,7 +112,7 @@ namespace SshFileSync
                 writer.Write(fileInfo.Length);
             }
         }
-
+        
         [Flags]
         private enum UpdateFlages : uint
         {
@@ -51,61 +122,86 @@ namespace SshFileSync
             DELETE_AND_UPDATE_FILES = DELETE_FILES | UPADTE_FILES,
         }
 
-        private readonly Renci.SshNet.SftpClient _sftpClient;
-        private readonly Renci.SshNet.ScpClient _scpClient;
-        private readonly Renci.SshNet.SshClient _sshClient;
-        private readonly ConnectionInfo _connectionInfo;
+        private readonly Options _sshDeltaCopyOptions;
+
+        private Renci.SshNet.SftpClient _sftpClient;
+        private Renci.SshNet.ScpClient _scpClient;
+        private Renci.SshNet.SshClient _sshClient;
+                
+        public static readonly string DefaultBatchFilename = "sshfilesync.csv";
+        public static readonly string _deleteListFileName = ".deletedFilesList.cache";
+        public static readonly string _uploadCacheFileName = ".uploadCache.cache";
+        public static readonly string _uploadCacheTempFileName = ".uploadCache.cache.tmp";
+        public static readonly string _compressedUploadDiffContentFilename = "compressedUploadDiffContent.tar.gz";
 
         private string _scpDestinationDirectory;
-        private readonly string _deleteListFileName;
-        private readonly string _uploadCacheFileName;
-        private readonly string _uploadCacheTempFileName;
-        private readonly string _compressedUploadDiffContentFilename;
 
         private readonly Stopwatch _stopWatch = new Stopwatch();
-        private readonly bool _printTimings;
         private long _lastElapsedMilliseconds;
+        private bool _isConnected;
+        
+        public static bool RunBatchfile(string batchFileName)
+        {
+            if (!File.Exists(batchFileName))
+            {
+                return false;
+            }
 
-        private bool _removeTempDeleteListFile;
-        private bool _removeOldFiles;
+            return RunBatchLines(File.ReadLines(batchFileName));
+        }
+
+        public static bool RunBatchLines(IEnumerable<string> batchLines, params char[] splitChars)
+        {
+            splitChars = splitChars.Length > 0 ? splitChars : new char[] { ';' };
+
+            var batchRuns = batchLines
+                .Select(x => x.Split(splitChars))
+                .Where(args => args.Length > Options.DESTINATION_DIRECTORY_INDEX)
+                .Select(args => Options.CreateFromArgs(args))
+                .GroupBy(x => x.ConnectionGroupKey)
+                .ToList();
+
+            foreach (var batchGroup in batchRuns)
+            {
+                try
+                {
+                    var groupConnectionOptions = batchGroup.First();
+                    using (var sshDeltaCopy = new SshDeltaCopy(groupConnectionOptions))
+                    {
+                        foreach (var batchElement in batchGroup)
+                        {
+                            sshDeltaCopy.UpdateDirectory(batchElement.SourceDirectory, batchElement.DestinationDirectory);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    PrintError(ex);
+                }
+            }
+
+            return true;
+        }
 
         public SshDeltaCopy(string host, int port, string username, string password, bool removeOldFiles = true, bool printTimings = true, bool removeTempDeleteListFile = true)
         {
-            _stopWatch.Restart();
-            _lastElapsedMilliseconds = 0;
-
-            _printTimings = printTimings;
-            _removeTempDeleteListFile = removeTempDeleteListFile;
-            _removeOldFiles = removeOldFiles;
-
-            PrintTime($"Connecting to {username}@{host}:{port} ...");
-
-            _sshClient = new SshClient(host, port, username, password);
-            _sshClient.Connect();
-
-            try
+            _sshDeltaCopyOptions = new Options()
             {
-                var sftpClient = new SftpClient(host, port, username, password);
-                sftpClient.Connect();
-                _sftpClient = sftpClient;
-            }
-            catch (Exception ex)
-            {
-                PrintTime($"Error: {ex.Message} Is SFTP supported for {username}@{host}:{port}? We are using SCP instead!");
-                _scpClient = new ScpClient(host, port, username, password);
-                _scpClient.Connect();
-            }
-
-            _connectionInfo = _sshClient.ConnectionInfo;
-
-            _uploadCacheFileName = $".uploadCache.cache";
-            _uploadCacheTempFileName = $"{_uploadCacheFileName}.tmp";
-            _deleteListFileName = $".deletedFilesList.cache";
-            _compressedUploadDiffContentFilename = $"compressedUploadDiffContent.tar.gz";
-
-            PrintTime($"Connected to {_connectionInfo.Username}@{_connectionInfo.Host}:{_connectionInfo.Port} via SSH and {(_sftpClient == null ? "SFTP" : "SCP")}");
+                Host = host,
+                Port = port,
+                Username = username,
+                Password = password,
+                RemoveOldFiles = removeOldFiles,
+                PrintTimings = printTimings,
+                RemoveTempDeleteListFile = removeTempDeleteListFile
+            };
         }
 
+        public SshDeltaCopy(Options sshDeltaCopyOptions)
+        {
+            _sshDeltaCopyOptions = sshDeltaCopyOptions;            
+        }
+        
         public void Dispose()
         {
             _sshClient?.Dispose();
@@ -115,15 +211,14 @@ namespace SshFileSync
 
         public void UpdateDirectory(string sourceDirectory, string destinationDirectory)
         {
-            _stopWatch.Restart();
-            _lastElapsedMilliseconds = 0;
+            InternalConnect(_sshDeltaCopyOptions.Host, _sshDeltaCopyOptions.Port, _sshDeltaCopyOptions.Username, _sshDeltaCopyOptions.Password);
 
-            PrintTime($"Copy{(_removeOldFiles ? " and remove" : string.Empty)} all changed files from '{sourceDirectory}' to '{destinationDirectory}'");
+            PrintTime($"Copy{(_sshDeltaCopyOptions.RemoveOldFiles ? " and remove" : string.Empty)} all changed files from '{sourceDirectory}' to '{destinationDirectory}'");
 
             var sourceDirInfo = new DirectoryInfo(sourceDirectory);
             if (!sourceDirInfo.Exists)
             {
-                throw new DirectoryNotFoundException(sourceDirectory);
+                throw new DirectoryNotFoundException($"{sourceDirectory} not found!");
             }
 
             ChangeWorkingDirectory(destinationDirectory);
@@ -145,9 +240,48 @@ namespace SshFileSync
             PrintTime($"Finished!");
         }
 
+        private void InternalConnect(string host, int port, string username, string password)
+        {
+            if (_isConnected)
+            {
+                return;
+            }
+
+            // Restart timer
+            _stopWatch.Restart();
+            _lastElapsedMilliseconds = 0;
+            
+            // Start connection ...
+            PrintTime($"Connecting to {username}@{host}:{port} ...");
+
+            _sshClient = new SshClient(host, port, username, password);
+            _sshClient.Connect();
+
+            try
+            {
+                // Use SFTP for file transfers
+                var sftpClient = new SftpClient(host, port, username, password);
+                sftpClient.Connect();
+                _sftpClient = sftpClient;
+            }
+            catch (Exception ex)
+            {
+                // Use SCP if SFTP fails
+                PrintTime($"Error: {ex.Message} Is SFTP supported for {username}@{host}:{port}? We are using SCP instead!");
+                _scpClient = new ScpClient(host, port, username, password);
+                _scpClient.Connect();
+            }
+
+            var _connectionInfo = _sshClient.ConnectionInfo;
+
+            PrintTime($"Connected to {_connectionInfo.Username}@{_connectionInfo.Host}:{_connectionInfo.Port} via SSH and {(_sftpClient != null ? "SFTP" : "SCP")}");
+
+            _isConnected = true;
+        }
+
         private void ChangeWorkingDirectory(string destinationDirectory)
         {
-            var cmd = _sshClient.RunCommand($"mkdir -p {destinationDirectory}");
+            var cmd = _sshClient.RunCommand($"mkdir -p \"{destinationDirectory}\"");
             if (cmd.ExitStatus != 0)
             {
                 throw new Exception(cmd.Error);
@@ -229,7 +363,8 @@ namespace SshFileSync
                             var remotefileEntry = UpdateCacheEntry.ReadFromStream(reader);
                             remoteFilesSize += remotefileEntry.FileSize;
 
-                            if (!localFileCache.TryGetValue(remotefileEntry.FilePath, out FileInfo localFileInfo))
+                            FileInfo localFileInfo;
+                            if (!localFileCache.TryGetValue(remotefileEntry.FilePath, out localFileInfo))
                             {
                                 deleteFileCount++;
                                 deleteFileSize += remotefileEntry.FileSize;
@@ -247,7 +382,7 @@ namespace SshFileSync
                     }
                 }
             }
-            catch (Renci.SshNet.Common.ScpException)
+            catch (Exception ex)
             {
                 PrintTime($"Remote file cache '{_uploadCacheFileName}' not found! We are uploading all files!");
             }
@@ -350,26 +485,26 @@ namespace SshFileSync
 
         private SshCommand UnzipCompressedFileDiffAndRemoveOldFiles(string destinationDirectory, UpdateFlages updateFlags)
         {
-            var commandText = $"cd {destinationDirectory}";
+            var commandText = $"cd \"{destinationDirectory}\"";
             if (updateFlags.HasFlag(UpdateFlages.UPADTE_FILES))
             {
-                commandText += $";tar -zxf {_compressedUploadDiffContentFilename}";
-                if (_removeTempDeleteListFile)
+                commandText += $";tar -zxf \"{_compressedUploadDiffContentFilename}\"";
+                if (_sshDeltaCopyOptions.RemoveTempDeleteListFile)
                 {
-                    commandText += $";rm {_compressedUploadDiffContentFilename}";
+                    commandText += $";rm \"{_compressedUploadDiffContentFilename}\"";
                 }
-                commandText += $";mv {_uploadCacheTempFileName} {_uploadCacheFileName}";
+                commandText += $";mv \"{_uploadCacheTempFileName}\" \"{_uploadCacheFileName}\"";
             }
             if (updateFlags.HasFlag(UpdateFlages.DELETE_FILES))
             {
-                if (_removeOldFiles)
+                if (_sshDeltaCopyOptions.RemoveOldFiles)
                 {
-                    commandText += $";while read file ; do rm \"$file\" ; done < {_deleteListFileName}";
+                    commandText += $";while read file ; do rm \"$file\" ; done < \"{_deleteListFileName}\"";
                 }
 
-                if (_removeTempDeleteListFile)
+                if (_sshDeltaCopyOptions.RemoveTempDeleteListFile)
                 {
-                    commandText += $";rm {_deleteListFileName}";
+                    commandText += $";rm \"{_deleteListFileName}\"";
                 }
             }
 
@@ -379,14 +514,14 @@ namespace SshFileSync
                 throw new Exception(cmd.Error);
             }
 
-            PrintTime($"Compressed file diff '{_compressedUploadDiffContentFilename}' unzipped {(_removeTempDeleteListFile ? "and temp files cleaned up" : "and temp files not cleaned up")}");
+            PrintTime($"Compressed file diff '{_compressedUploadDiffContentFilename}' unzipped {(_sshDeltaCopyOptions.RemoveTempDeleteListFile ? "and temp files cleaned up" : "and temp files not cleaned up")}");
 
             return cmd;
         }
 
         private void PrintTime(string text)
         {
-            if (_printTimings)
+            if (_sshDeltaCopyOptions.PrintTimings)
             {
                 var currentElapsedMilliseconds = _stopWatch.ElapsedMilliseconds;
                 Console.WriteLine($"[{(currentElapsedMilliseconds - _lastElapsedMilliseconds),7} ms][{currentElapsedMilliseconds,7} ms] {text}");
@@ -394,12 +529,12 @@ namespace SshFileSync
             }
         }
 
-        private void PrintError(Exception ex)
+        private static void PrintError(Exception ex)
         {
             Console.WriteLine($"Exception: {ex.Message}\n{ex.StackTrace}");
         }
 
-        public static IEnumerable<string> GetFiles(string path)
+        private static IEnumerable<string> GetFiles(string path)
         {
             Queue<string> queue = new Queue<string>();
             queue.Enqueue(path);

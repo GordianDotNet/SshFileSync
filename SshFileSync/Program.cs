@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 
 namespace SshFileSync
 {
@@ -8,28 +9,32 @@ namespace SshFileSync
         {
             try
             {
-                if (args.Length < 6)
+                if (args.Length > SshDeltaCopy.Options.DESTINATION_DIRECTORY_INDEX)
                 {
-                    Console.WriteLine("Error: Missing parameters!");
-                    Console.WriteLine("usage: SshFileSync Host#0 Port#1 SshUserName#2 SshPassword#3 LocalSourceDirectory#4 RemoteDestinationDirectory#4");
-                    return -1;
+                    var options = SshDeltaCopy.Options.CreateFromArgs(args);
+                    using (var updater = new SshDeltaCopy(options))
+                    {
+                        updater.UpdateDirectory(options.SourceDirectory, options.DestinationDirectory);
+                    }
                 }
-                
-                if (int.TryParse(args[1], out int port))
+                else if (args.Length > 0 && File.Exists(args[0]))
                 {
-                    port = 22;
+                    SshDeltaCopy.RunBatchfile(args[0]);
                 }
-
-                using (var updater = new SshDeltaCopy(args[0], port, args[2], args[3]))
+                else if (File.Exists(SshDeltaCopy.DefaultBatchFilename))
                 {
-                    updater.UpdateDirectory(args[4], args[5]);
-                }
+                    SshDeltaCopy.RunBatchfile(SshDeltaCopy.DefaultBatchFilename);
+                }                
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Exception: {ex.Message}\n{ex.StackTrace}");
                 return -2;
             }
+
+#if DEBUG
+            System.Threading.Thread.Sleep(5000);
+#endif
 
             return 0;
         }
