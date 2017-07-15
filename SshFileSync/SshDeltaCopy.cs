@@ -1,4 +1,6 @@
-﻿using System;
+﻿// Copyright (c) 2017 GordianDotNet (https://github.com/GordianDotNet/SshFileSync)
+// 20170715: Version 1.2.0
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -170,7 +172,7 @@ namespace SshFileSync
                     {
                         foreach (var batchElement in batchGroup)
                         {
-                            sshDeltaCopy.UpdateDirectory(batchElement.SourceDirectory, batchElement.DestinationDirectory);
+                            sshDeltaCopy.DeployDirectory(batchElement.SourceDirectory, batchElement.DestinationDirectory);
                         }
                     }
                 }
@@ -209,9 +211,27 @@ namespace SshFileSync
             _scpClient?.Dispose();
         }
 
-        public void UpdateDirectory(string sourceDirectory, string destinationDirectory)
+        public SshCommand RunSSHCommand(string userCommandText)
         {
-            InternalConnect(_sshDeltaCopyOptions.Host, _sshDeltaCopyOptions.Port, _sshDeltaCopyOptions.Username, _sshDeltaCopyOptions.Password);
+            InternalConnect(_sshDeltaCopyOptions.Host, _sshDeltaCopyOptions.Port, _sshDeltaCopyOptions.Username, _sshDeltaCopyOptions.Password, _sshDeltaCopyOptions.DestinationDirectory);
+
+            var commandText = $"cd \"{_sshDeltaCopyOptions.DestinationDirectory}\";{userCommandText}";
+            PrintTime($"Running SSH command ...\n{commandText}");
+
+            SshCommand cmd = _sshClient.RunCommand(commandText);
+            if (cmd.ExitStatus != 0)
+            {
+                throw new Exception(cmd.Error);
+            }
+
+            PrintTime($"SSH command result:\n{cmd.Result}");
+
+            return cmd;
+        }
+
+        public void DeployDirectory(string sourceDirectory, string destinationDirectory)
+        {
+            InternalConnect(_sshDeltaCopyOptions.Host, _sshDeltaCopyOptions.Port, _sshDeltaCopyOptions.Username, _sshDeltaCopyOptions.Password, destinationDirectory);
 
             PrintTime($"Copy{(_sshDeltaCopyOptions.RemoveOldFiles ? " and remove" : string.Empty)} all changed files from '{sourceDirectory}' to '{destinationDirectory}'");
 
@@ -220,9 +240,7 @@ namespace SshFileSync
             {
                 throw new DirectoryNotFoundException($"{sourceDirectory} not found!");
             }
-
-            ChangeWorkingDirectory(destinationDirectory);
-
+            
             var localFileCache = CreateLocalFileCache(sourceDirInfo);
 
             var fileListToDelete = new StringBuilder();
@@ -240,7 +258,7 @@ namespace SshFileSync
             PrintTime($"Finished!");
         }
 
-        private void InternalConnect(string host, int port, string username, string password)
+        private void InternalConnect(string host, int port, string username, string password, string workingDirectory)
         {
             if (_isConnected)
             {
@@ -277,6 +295,8 @@ namespace SshFileSync
             PrintTime($"Connected to {_connectionInfo.Username}@{_connectionInfo.Host}:{_connectionInfo.Port} via SSH and {(_sftpClient != null ? "SFTP" : "SCP")}");
 
             _isConnected = true;
+
+            ChangeWorkingDirectory(workingDirectory);
         }
 
         private void ChangeWorkingDirectory(string destinationDirectory)

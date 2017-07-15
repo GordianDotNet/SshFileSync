@@ -43,11 +43,12 @@ var options = new SshDeltaCopy.Options() {
 	PrintTimings = true,
 	RemoveTempDeleteListFile = true,
 };
-using (var updater = new SshDeltaCopy(options))
+using (var sshDeltaCopy = new SshDeltaCopy(options))
 {
-	updater.UpdateDirectory(@"C:\App\MyAppBin", @"/usr/bin/MyApp");
-	updater.UpdateDirectory(@"C:\App\PublicContent", @"/home/shared/public");
-	updater.UpdateDirectory(@"C:\App\PrivateContent", @"/home/root/private");
+	sshDeltaCopy.DeployDirectory(@"C:\App\MyAppBin", @"/usr/bin/MyApp");
+	sshDeltaCopy.DeployDirectory(@"C:\App\PublicContent", @"/home/shared/public");
+	sshDeltaCopy.DeployDirectory(@"C:\App\PrivateContent", @"/home/root/private");
+	sshDeltaCopy.RunSSHCommand("ls -al");
 }
 ```
 
@@ -57,6 +58,10 @@ using (var updater = new SshDeltaCopy(options))
 - [ ] Crashs if compressed content > 100 MB (Bug in Renci.SshNet 2016.0.0.0 ?)
 
 # Version History
+
+## 1.2.0
+**2017-07-15**
+- [x] Feature: RunSSHCommand method implemented
 
 ## 1.1.0
 **2017-07-15**

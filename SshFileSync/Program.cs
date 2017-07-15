@@ -12,9 +12,12 @@ namespace SshFileSync
                 if (args.Length > SshDeltaCopy.Options.DESTINATION_DIRECTORY_INDEX)
                 {
                     var options = SshDeltaCopy.Options.CreateFromArgs(args);
-                    using (var updater = new SshDeltaCopy(options))
+                    using (var sshDeltaCopy = new SshDeltaCopy(options))
                     {
-                        updater.UpdateDirectory(options.SourceDirectory, options.DestinationDirectory);
+                        //sshDeltaCopy.RunSSHCommand("ls -al");
+                        sshDeltaCopy.DeployDirectory(options.SourceDirectory, options.DestinationDirectory);
+                        //sshDeltaCopy.RunSSHCommand("ls -al");
+                        //sshDeltaCopy.RunSSHCommand("df -h");
                     }
                 }
                 else if (args.Length > 0 && File.Exists(args[0]))
