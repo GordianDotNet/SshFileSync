@@ -1,5 +1,5 @@
 ﻿/* 
-20170715: Version 1.2.0
+20170716: Version 1.3.0
 
 MIT License
 
@@ -73,7 +73,7 @@ namespace SshFileSync
                     return $"{Host}#{Port}#{Username}";
                 }
             }
-            
+
             public Options()
             { }
 
@@ -140,7 +140,7 @@ namespace SshFileSync
                 writer.Write(fileInfo.Length);
             }
         }
-        
+
         [Flags]
         private enum UpdateFlages : uint
         {
@@ -155,7 +155,7 @@ namespace SshFileSync
         private Renci.SshNet.SftpClient _sftpClient;
         private Renci.SshNet.ScpClient _scpClient;
         private Renci.SshNet.SshClient _sshClient;
-                
+
         public static readonly string DefaultBatchFilename = "sshfilesync.csv";
         public static readonly string _deleteListFileName = ".deletedFilesList.cache";
         public static readonly string _uploadCacheFileName = ".uploadCache.cache";
@@ -167,7 +167,7 @@ namespace SshFileSync
         private readonly Stopwatch _stopWatch = new Stopwatch();
         private long _lastElapsedMilliseconds;
         private bool _isConnected;
-        
+
         public static bool RunBatchfile(string batchFileName)
         {
             if (!File.Exists(batchFileName))
@@ -227,9 +227,9 @@ namespace SshFileSync
 
         public SshDeltaCopy(Options sshDeltaCopyOptions)
         {
-            _sshDeltaCopyOptions = sshDeltaCopyOptions;            
+            _sshDeltaCopyOptions = sshDeltaCopyOptions;
         }
-        
+
         public void Dispose()
         {
             _sshClient?.Dispose();
@@ -237,7 +237,7 @@ namespace SshFileSync
             _scpClient?.Dispose();
         }
 
-        public SshCommand RunSSHCommand(string userCommandText)
+        public SshCommand RunSSHCommand(string userCommandText, bool throwOnError = true)
         {
             InternalConnect(_sshDeltaCopyOptions.Host, _sshDeltaCopyOptions.Port, _sshDeltaCopyOptions.Username, _sshDeltaCopyOptions.Password, _sshDeltaCopyOptions.DestinationDirectory);
 
@@ -245,7 +245,7 @@ namespace SshFileSync
             PrintTime($"Running SSH command ...\n{commandText}");
 
             SshCommand cmd = _sshClient.RunCommand(commandText);
-            if (cmd.ExitStatus != 0)
+            if (throwOnError && cmd.ExitStatus != 0)
             {
                 throw new Exception(cmd.Error);
             }
@@ -253,6 +253,15 @@ namespace SshFileSync
             PrintTime($"SSH command result:\n{cmd.Result}");
 
             return cmd;
+        }
+
+        public SshCommand CreateSSHCommand(string userCommandText)
+        {
+            InternalConnect(_sshDeltaCopyOptions.Host, _sshDeltaCopyOptions.Port, _sshDeltaCopyOptions.Username, _sshDeltaCopyOptions.Password, _sshDeltaCopyOptions.DestinationDirectory);
+
+            var commandText = $"cd \"{_sshDeltaCopyOptions.DestinationDirectory}\";{userCommandText}";
+
+            return _sshClient.CreateCommand(commandText);
         }
 
         public void DeployDirectory(string sourceDirectory, string destinationDirectory)
@@ -266,7 +275,7 @@ namespace SshFileSync
             {
                 throw new DirectoryNotFoundException($"{sourceDirectory} not found!");
             }
-            
+
             var localFileCache = CreateLocalFileCache(sourceDirInfo);
 
             var fileListToDelete = new StringBuilder();
@@ -294,7 +303,7 @@ namespace SshFileSync
             // Restart timer
             _stopWatch.Restart();
             _lastElapsedMilliseconds = 0;
-            
+
             // Start connection ...
             PrintTime($"Connecting to {username}@{host}:{port} ...");
 
@@ -565,7 +574,7 @@ namespace SshFileSync
             return cmd;
         }
 
-        private void PrintTime(string text)
+        internal void PrintTime(string text)
         {
             if (_sshDeltaCopyOptions.PrintTimings)
             {

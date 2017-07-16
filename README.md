@@ -60,6 +60,10 @@ using (var sshDeltaCopy = new SshDeltaCopy(options))
 # Version History
 
 ## 1.2.0
+**2017-07-16**
+- [x] Feature: CreateSSHCommand method implemented
+
+## 1.2.0
 **2017-07-15**
 - [x] Feature: RunSSHCommand method implemented
 

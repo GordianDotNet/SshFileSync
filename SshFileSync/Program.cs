@@ -16,7 +16,9 @@ namespace SshFileSync
                     {
                         //sshDeltaCopy.RunSSHCommand("ls -al");
                         sshDeltaCopy.DeployDirectory(options.SourceDirectory, options.DestinationDirectory);
-                        //sshDeltaCopy.RunSSHCommand("ls -al");
+                        //var cmd = sshDeltaCopy.CreateSSHCommand("ls -al");
+                        //var result = cmd.Execute();
+                        //sshDeltaCopy.PrintTime(result);
                         //sshDeltaCopy.RunSSHCommand("df -h");
                     }
                 }
