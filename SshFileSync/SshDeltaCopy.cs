@@ -1,5 +1,5 @@
 ﻿/* 
-20170716: Version 1.3.0
+20171021: Version 1.3.0
 
 MIT License
 
