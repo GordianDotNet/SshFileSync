@@ -55,9 +55,14 @@ using (var sshDeltaCopy = new SshDeltaCopy(options))
 # Known Issue
 - [ ] Does not delete or create empty directories
 - [ ] Supports only Windows as local machine and Linux/Unix as remote machine
-- [ ] Crashs if compressed content > 100 MB (Bug in Renci.SshNet 2016.0.0.0 ?)
 
 # Version History
+
+## 1.3.0
+**2017-10-21**
+- [x] Bugfix: "set -e" added at the beginning of the upload script. (Exit immediately if a command exits with a non-zero status.) Errors, such as 'tar: write error: No space left on device', during the upload process were not discovered.
+- [x] Bugfix: Upgraded to Renci.SshNet 2016.1.0.0 to avoid crashes with compressed content > 100 MB.
+- [x] Bugfix: Batch transfer mode has deployed only to the first path. Added "change working directory" for every batch task.
 
 ## 1.2.0
 **2017-07-16**

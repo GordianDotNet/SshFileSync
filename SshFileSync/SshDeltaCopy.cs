@@ -297,6 +297,7 @@ namespace SshFileSync
         {
             if (_isConnected)
             {
+                ChangeWorkingDirectory(workingDirectory);
                 return;
             }
 
@@ -487,6 +488,10 @@ namespace SshFileSync
                                 {
                                     tarGzWriter.Write(file.Key, file.Value);
                                 }
+                                catch (IOException ioEx)
+                                {
+                                    PrintError(ioEx, withStacktrace: false);
+                                }
                                 catch (Exception ex)
                                 {
                                     PrintError(ex);
@@ -540,7 +545,7 @@ namespace SshFileSync
 
         private SshCommand UnzipCompressedFileDiffAndRemoveOldFiles(string destinationDirectory, UpdateFlages updateFlags)
         {
-            var commandText = $"cd \"{destinationDirectory}\"";
+            var commandText = $"set -e;cd \"{destinationDirectory}\"";
             if (updateFlags.HasFlag(UpdateFlages.UPADTE_FILES))
             {
                 commandText += $";tar -zxf \"{_compressedUploadDiffContentFilename}\"";
@@ -554,7 +559,7 @@ namespace SshFileSync
             {
                 if (_sshDeltaCopyOptions.RemoveOldFiles)
                 {
-                    commandText += $";while read file ; do rm \"$file\" ; done < \"{_deleteListFileName}\"";
+                    commandText += $";while read file ; do rm -f \"$file\" ; done < \"{_deleteListFileName}\"";
                 }
 
                 if (_sshDeltaCopyOptions.RemoveTempDeleteListFile)
@@ -584,9 +589,16 @@ namespace SshFileSync
             }
         }
 
-        private static void PrintError(Exception ex)
+        private static void PrintError(Exception ex, bool withStacktrace = true)
         {
-            Console.WriteLine($"Exception: {ex.Message}\n{ex.StackTrace}");
+            if (withStacktrace)
+            {
+                Console.WriteLine($"Exception: {ex.Message}\n{ex.StackTrace}");
+            }
+            else
+            {
+                Console.WriteLine($"Exception: {ex.Message}");
+            }
         }
 
         private static IEnumerable<string> GetFiles(string path)
