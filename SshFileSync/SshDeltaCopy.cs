@@ -1,5 +1,5 @@
 ﻿/* 
-20171021: Version 1.3.0
+20171022: Version 1.4.0
 
 MIT License
 
@@ -168,6 +168,8 @@ namespace SshFileSync
         private long _lastElapsedMilliseconds;
         private bool _isConnected;
 
+        public Action<string> LogOutput { get; set; } = Console.WriteLine;
+
         public static bool RunBatchfile(string batchFileName)
         {
             if (!File.Exists(batchFileName))
@@ -204,7 +206,7 @@ namespace SshFileSync
                 }
                 catch (Exception ex)
                 {
-                    PrintError(ex);
+                    Console.WriteLine($"Exception: {ex.Message}\n{ex.StackTrace}");
                 }
             }
 
@@ -584,20 +586,20 @@ namespace SshFileSync
             if (_sshDeltaCopyOptions.PrintTimings)
             {
                 var currentElapsedMilliseconds = _stopWatch.ElapsedMilliseconds;
-                Console.WriteLine($"[{(currentElapsedMilliseconds - _lastElapsedMilliseconds),7} ms][{currentElapsedMilliseconds,7} ms] {text}");
+                LogOutput?.Invoke($"[{(currentElapsedMilliseconds - _lastElapsedMilliseconds),7} ms][{currentElapsedMilliseconds,7} ms] {text}");
                 _lastElapsedMilliseconds = currentElapsedMilliseconds;
             }
         }
 
-        private static void PrintError(Exception ex, bool withStacktrace = true)
+        private void PrintError(Exception ex, bool withStacktrace = true)
         {
             if (withStacktrace)
             {
-                Console.WriteLine($"Exception: {ex.Message}\n{ex.StackTrace}");
+                LogOutput?.Invoke($"Exception: {ex.Message}\n{ex.StackTrace}");
             }
             else
             {
-                Console.WriteLine($"Exception: {ex.Message}");
+                LogOutput?.Invoke($"Exception: {ex.Message}");
             }
         }
 
