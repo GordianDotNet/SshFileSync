@@ -58,6 +58,10 @@ using (var sshDeltaCopy = new SshDeltaCopy(options))
 
 # Version History
 
+## 1.4.0
+**2017-10-22**
+- [x] Feature: Feature: Support for output redirection with property LogOutput.
+
 ## 1.3.0
 **2017-10-21**
 - [x] Bugfix: "set -e" added at the beginning of the upload script. (Exit immediately if a command exits with a non-zero status.) Errors, such as 'tar: write error: No space left on device', during the upload process were not discovered.
