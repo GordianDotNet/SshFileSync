@@ -1,5 +1,5 @@
 ﻿/* 
-20171022: Version 1.4.0
+20171022: Version 1.5.0
 
 MIT License
 
@@ -73,7 +73,7 @@ namespace SshFileSync
                     return $"{Host}#{Port}#{Username}";
                 }
             }
-
+            
             public Options()
             { }
 
@@ -299,7 +299,11 @@ namespace SshFileSync
         {
             if (_isConnected)
             {
-                ChangeWorkingDirectory(workingDirectory);
+                // Change the working directory only if we use ScpClient.
+                if (_scpClient != null)
+                {
+                    ChangeWorkingDirectory(workingDirectory);
+                }
                 return;
             }
 

@@ -58,6 +58,10 @@ using (var sshDeltaCopy = new SshDeltaCopy(options))
 
 # Version History
 
+## 1.5.0
+**2018-03-25**
+- [x] Bugfix: Change the working directory only if we use ScpClient.
+
 ## 1.4.0
 **2017-10-22**
 - [x] Feature: Feature: Support for output redirection with property LogOutput.
